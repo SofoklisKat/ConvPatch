@@ -1,0 +1,11 @@
+# ConvPatch dependencies
+# GPU: NVIDIA GTX 1050 Ti (Pascal sm_61, 4GB), driver 535 / CUDA 12.2.
+# Install torch/torchvision from the CUDA 12.1 wheel index:
+#   uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1
+torchvision==0.20.1
+numpy>=1.26,<2.2
+einops>=0.8.0
+pyyaml>=6.0
+tqdm>=4.66
+tensorboard>=2.16
