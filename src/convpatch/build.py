@@ -7,7 +7,13 @@ later without touching the encoder.
 
 from __future__ import annotations
 
-from .models.patch_embed import LinearPatchEmbed
+from .models.patch_embed import (
+    ConvStemPatchEmbed,
+    DWSepConvStemPatchEmbed,
+    HierarchicalPatchEmbed,
+    LinearPatchEmbed,
+    OverlappingPatchEmbed,
+)
 from .models.vit import ViT
 
 _SIZES = {
@@ -17,6 +23,10 @@ _SIZES = {
 
 _PATCH_EMBEDS = {
     "linear": LinearPatchEmbed,
+    "conv_stem": ConvStemPatchEmbed,
+    "overlapping": OverlappingPatchEmbed,
+    "hierarchical": HierarchicalPatchEmbed,
+    "dwsep_conv_stem": DWSepConvStemPatchEmbed,
 }
 
 

@@ -1,0 +1,304 @@
+% ConvPatch paper draft — controlled study of patch embedding in ViT
+% Compile: pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[margin=0.75in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\title{ConvPatch: A Controlled Study of Convolutional vs.\ Linear Patch Embedding in Vision Transformers}
+
+\author{
+  Sofoklis Katakis \\
+  \textit{Affiliation TBD}
+}
+
+\date{\today}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\TBD}{\textit{TBD}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Vision Transformers (ViTs) tokenize images with a \emph{patchify} stem: a single stride-$P$, $P{\times}P$ convolution that is equivalent to flattening non-overlapping patches and applying one linear projection.
+This design introduces no overlap, no hierarchy, and weak locality prior to the first self-attention layer.
+Prior work shows that replacing the patchify stem with a small convolutional stem can improve optimization and accuracy, but comparisons often change token count, encoder depth, or training recipe, confounding \emph{what} causes the gain.
+
+We present \textbf{ConvPatch}, a controlled isolation study that varies \emph{only} the patch-embedding module while holding the Transformer encoder, token count~$N$, embedding dimension~$D$, and training recipe fixed.
+We implement five matched-budget stems---linear (baseline), stacked conv, overlapping, hierarchical, and depthwise-separable---and evaluate them on CIFAR-10/100 and ImageNet-100 with ViT-Tiny and ViT-Small under identical augmentation and optimization.
+Our experiments test accuracy, convergence stability, data efficiency, robustness to corruptions, and compute overhead, with load-bearing controls for parameter-matched linear baselines and positional-encoding redundancy.
+\todo{Insert headline numbers after Phase 1 runs.}
+\end{abstract}
+
+%==============================================================================
+\section{Introduction}
+\label{sec:intro}
+
+The Vision Transformer (ViT)~\cite{dosovitskiy2021vit} partitions an image into a grid of non-overlapping patches and processes the resulting token sequence with standard Transformer blocks.
+The initial \emph{patch embedding} is implemented as a convolution with kernel size and stride equal to the patch size~$P$ (typically $16$).
+While convenient, this stem is atypical relative to CNN design practice, which favors small stacked kernels, overlap, and gradual spatial downsampling~\cite{xiao2021early}.
+
+Several works substitute or augment the linear patchify stem with convolutional token embedding~\cite{xiao2021early,wu2021cvt,liu2021swin}.
+Reported benefits include faster convergence, broader optimizer compatibility, and modest accuracy gains.
+However, these studies frequently adjust encoder depth or FLOPs to compensate for a heavier stem, or introduce additional architectural changes, making it difficult to attribute improvements to the stem alone.
+
+\textbf{Research question.} \emph{At fixed token count and fixed Transformer encoder, does the \emph{structure} of the patch-embedding module affect accuracy, optimization, data efficiency, and robustness---independent of capacity confounds?}
+
+\textbf{Contributions.}
+\begin{itemize}
+  \item A \textbf{controlled experimental protocol} for patch embedding in ViT: one swappable module, identical downstream encoder, enforced stride-$P$ invariant for token count~$N$.
+  \item A \textbf{design space} of five matched-budget stems (linear, conv, overlapping, hierarchical, depthwise-separable) with open-source configs and training code.
+  \item \textbf{Empirical study} on small-to-medium scale (CIFAR-10/100, ImageNet-100; ViT-Ti/S) covering accuracy, convergence, low-data regimes, corruption robustness, and efficiency.
+  \item \textbf{Load-bearing ablations} including parameter-matched wide-linear controls and positional-embedding removal, isolating mechanism from capacity.
+\end{itemize}
+
+%==============================================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Vision Transformers.}
+ViT~\cite{dosovitskiy2021vit} demonstrated that pure Transformers match CNNs on large-scale pretraining.
+DeiT~\cite{touvron2021deit} and follow-ups improved training recipes for smaller data regimes.
+
+\paragraph{Convolutional stems and hybrid front-ends.}
+Xiao et al.~\cite{xiao2021early} identify the large-kernel patchify stem as a source of optimization instability and propose a lightweight conv stem (ViT\textsc{c}), removing one Transformer block to match FLOPs.
+CvT~\cite{wu2021cvt} introduces convolutional token embedding with overlapping kernels.
+PVT/Swin~\cite{wang2021pvt,liu2021swin} use hierarchical or shifted-window designs; CETNet~\cite{cetnet2022} ablates patch-embedding variants in hierarchical ViTs.
+
+\paragraph{Positioning.}
+ConvPatch differs from~\cite{xiao2021early} in three ways: (i)~token count is held \emph{exactly} constant (no encoder block removal); (ii)~a broader stem design space is compared under one training recipe; (iii)~we explicitly test data efficiency, corruption robustness, and positional-encoding redundancy.
+Our goal is methodological rigor and reproducibility on single-GPU budgets, not a new state-of-the-art headline.
+
+%==============================================================================
+\section{Method}
+\label{sec:method}
+
+\subsection{Problem setup}
+
+Given an image $\mathbf{I} \in \mathbb{R}^{H \times W \times 3}$, a patch-embedding module $f_\theta$ maps to tokens $\mathbf{X} \in \mathbb{R}^{N \times D}$ with
+\[
+N = \frac{H}{P}\cdot\frac{W}{P}, \quad D = \text{embed\_dim}.
+\]
+A fixed ViT encoder $g_\phi$ (class token, positional embedding, $L$ Transformer blocks, layer norm) produces class logits.
+\textbf{Only} $f_\theta$ varies across experimental arms; $g_\phi$ and the training recipe are identical.
+
+\subsection{Linear baseline (Variant A)}
+
+The standard patchify stem is a single convolution:
+\[
+\mathbf{X} = \mathrm{Flatten}\bigl(\mathrm{Conv}_{P\times P,\, s=P}(\mathbf{I})\bigr) \in \mathbb{R}^{N \times D}.
+\]
+This is equivalent to independent linear projections of non-overlapping $P{\times}P$ patches.
+
+\subsection{Convolutional stems (Variants B--E)}
+
+All conv variants enforce \textbf{total stride}~$P$ so that $N$ matches Variant~A.
+
+\paragraph{B: Conv stem.}
+A stack of $\log_2 P$ stride-2 $3{\times}3$ convolutions with BatchNorm and GELU, channel schedule ramping to $D$, followed by a $1{\times}1$ projection.
+For $P{=}4$ (CIFAR), two stride-2 stages; for $P{=}16$ (ImageNet-100), four stages.
+This follows the minimalist stem of~\cite{xiao2021early} but \emph{without} removing a Transformer block.
+
+\paragraph{C: Overlapping patch embed.}
+A single convolution with kernel $2P$, stride $P$, padding $P/2$ (CvT-style overlap)~\cite{wu2021cvt}.
+
+\paragraph{D: Hierarchical stem.}
+Per stage: stride-2 $3{\times}3$ (downsample) then stride-1 $3{\times}3$ (refine), then $1{\times}1$ to $D$.
+
+\paragraph{E: Depthwise-separable stem.}
+Same stage count as B, but each stage uses depthwise $3{\times}3$ + pointwise $1{\times}1$ for parameter efficiency.
+
+\subsection{Fixed encoder}
+
+We use a standard ViT with learned class token and learned positional embedding~\cite{dosovitskiy2021vit}.
+Configurations:
+\begin{itemize}
+  \item \textbf{ViT-Tiny:} $D{=}192$, $L{=}12$, $4$ heads, MLP ratio $4$.
+  \item \textbf{ViT-Small:} $D{=}384$, $L{=}12$, $6$ heads, MLP ratio $4$.
+\end{itemize}
+Stochastic depth (drop-path rate $0.1$) is applied uniformly across arms.
+
+\subsection{Matched-budget protocol}
+
+We report per-arm parameter count and FLOPs.
+Where stem parameter count exceeds the linear baseline, we include \textbf{Ablation~A6}: a widened or factorized linear stem matched to conv parameter count, to test whether gains are purely capacity-driven.
+
+%==============================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Datasets}
+
+\begin{table}[t]
+\centering
+\caption{Dataset configuration. CIFAR-10 is used for pilot runs; CIFAR-100 is the primary small-scale benchmark.}
+\label{tab:datasets}
+\begin{tabular}{lcccc}
+\toprule
+Dataset & Resolution & $P$ & $N$ & Classes \\
+\midrule
+CIFAR-10   & $32^2$  & 4  & 64  & 10  \\
+CIFAR-100  & $32^2$  & 4  & 64  & 100 \\
+ImageNet-100 & $224^2$ & 16 & 196 & 100 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ImageNet-100 is a 100-class subset of ImageNet-1k (class indices fixed and documented in supplementary).
+
+\subsection{Training recipe}
+
+All arms share:
+\begin{itemize}
+  \item Optimizer: AdamW, base LR $10^{-3}$, cosine decay, $10^{-6}$ floor.
+  \item Warmup: 20 epochs (CIFAR) / scaled for ImageNet-100.
+  \item Weight decay $0.05$; gradient clipping $1.0$.
+  \item Augmentation: RandomCrop (pad 4), horizontal flip, RandAugment ($n{=}2$, $m{=}9$).
+  \item Mixup $\alpha{=}0.8$ / CutMix $\alpha{=}1.0$; label smoothing $0.1$.
+  \item Mixed precision (AMP) on GPU.
+  \item Batch size 128; seeds $\{0,1,2\}$.
+\end{itemize}
+The recipe is \textbf{not} tuned per variant.
+
+\subsection{Evaluation metrics}
+
+\begin{itemize}
+  \item \textbf{Accuracy:} top-1 / top-5 on held-out test set.
+  \item \textbf{Convergence:} validation accuracy vs.\ epoch; epochs-to-90\%-of-best.
+  \item \textbf{Data efficiency:} 10\% and 25\% training subsets (stratified, fixed per seed).
+  \item \textbf{Robustness:} mean Corruption Error (mCE) on CIFAR-10-C / CIFAR-100-C.
+  \item \textbf{Efficiency:} params, FLOPs, inference throughput, peak training memory.
+\end{itemize}
+
+\subsection{Implementation}
+
+Experiments use PyTorch~2.5 with config-driven training (\texttt{convpatch.train}).
+Patch-embedding variants are selected via \texttt{model.patch\_embed} in YAML configs; the encoder is unchanged.
+Code and configs: \url{https://github.com/SofoklisKat/ConvPatch}.
+
+%==============================================================================
+\section{Experiments}
+\label{sec:experiments}
+
+We organize experiments into six phases (full plan in \texttt{paper/EXPERIMENT\_PLAN.md}).
+
+\subsection{Main factorial (Phase 1)}
+
+\textbf{Factor grid:} 5 variants $\times$ 2 model sizes $\times$ 2 datasets $\times$ 3 seeds $=$ 60 runs (MVP subset: CIFAR-100 ViT-Ti, 15 runs).
+
+\textbf{Primary comparison:} Variant~B (conv stem) vs.\ Variant~A (linear).
+
+\textbf{Hypothesis H1:} Conv stems achieve higher top-1 at matched $N$, with largest gap on CIFAR-100 and low-data subsets.
+
+\begin{table}[t]
+\centering
+\caption{Main results (ViT-Tiny). \TBD{} after training.}
+\label{tab:main}
+\begin{tabular}{lccc}
+\toprule
+Patch embed & CIFAR-10 & CIFAR-100 & IN-100 \\
+\midrule
+A: Linear      & \TBD & \TBD & \TBD \\
+B: Conv stem   & \TBD & \TBD & \TBD \\
+C: Overlapping & \TBD & \TBD & \TBD \\
+D: Hierarchical& \TBD & \TBD & \TBD \\
+E: DW-sep      & \TBD & \TBD & \TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Low-data regime (Phase 2)}
+
+Train on 10\% and 25\% of CIFAR-100 (stratified subsets).
+Compare A vs.\ B and best variant from Phase~1.
+
+\textbf{Hypothesis H2:} Conv--linear gap \emph{widens} as data decreases.
+
+\subsection{Optimization stability (Phase 3)}
+
+\begin{itemize}
+  \item Convergence curves (A vs.\ B).
+  \item LR sweep: $\{3{\times}10^{-4}, 10^{-3}, 3{\times}10^{-3}, 10^{-2}\}$.
+  \item Warmup sweep: $\{0, 5, 20\}$ epochs.
+  \item Optimizer: AdamW vs.\ SGD.
+\end{itemize}
+
+\textbf{Hypothesis H3:} Conv stems tolerate higher learning rates and converge faster with lower loss variance.
+
+\subsection{Ablations (Phase 4)}
+
+Critical ablations:
+\begin{itemize}
+  \item \textbf{A4 (position embedding):} learned / sincos / \emph{none}, crossed with A and B.
+  \item \textbf{A6 (param-matched linear):} widen linear stem to match B's parameter count.
+\end{itemize}
+
+\textbf{Hypothesis H4:} Gains persist under A6; conv stems reduce reliance on explicit pos-emb (A4).
+
+\subsection{Robustness and efficiency (Phase 5)}
+
+Evaluate best checkpoints on CIFAR-C; report mCE, throughput, and memory.
+
+\textbf{Hypothesis H5:} Conv stems improve mCE with $<5\%$ throughput overhead.
+
+%==============================================================================
+\section{Results}
+\label{sec:results}
+
+\todo{Populate after Phase 1--5 experiments.}
+
+\subsection{Main accuracy}
+
+\TBD
+
+\subsection{Convergence and optimization}
+
+\TBD
+
+\subsection{Data efficiency}
+
+\TBD
+
+\subsection{Ablations}
+
+\TBD
+
+\subsection{Robustness and cost}
+
+\TBD
+
+%==============================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\todo{Draft after results.}
+
+\paragraph{Why might conv stems help?}
+Locality and translation-equivariant feature extraction before global attention; smoother optimization landscape; implicit positional structure reducing pos-emb dependence.
+
+\paragraph{Limitations.}
+Single-GPU scale (no full ImageNet-1k); ViT-Ti/S only; CIFAR-10 pilot vs.\ CIFAR-100 primary; no self-supervised pretraining.
+
+\paragraph{Future work.}
+ImageNet-1k scaling; MAE/DINO with conv stems; dense prediction transfer; hybrid encoders.
+
+%==============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We introduced ConvPatch, a controlled framework for studying patch-embedding design in Vision Transformers.
+By isolating the stem as the sole independent variable and enforcing token-count invariance, we provide reproducible evidence on \emph{when} and \emph{why} convolutional patch embedding outperforms linear patchify---beyond capacity confounds.
+\todo{One-sentence summary of key finding.}
+
+%==============================================================================
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
