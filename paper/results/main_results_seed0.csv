@@ -1,0 +1,11 @@
+dataset,variant,patch_embed,seed,epochs,best_top1,best_top5,params_M,tokens,run_name
+cifar10,linear,linear,0,200,93.71,,5.36,64,cifar10_vit_tiny_linear_seed0
+cifar10,conv_stem,conv_stem,0,200,93.40,,5.56,64,cifar10_vit_tiny_conv_stem_seed0
+cifar10,overlapping,overlapping,0,200,93.69,,5.39,64,cifar10_vit_tiny_overlapping_seed0
+cifar10,hierarchical,hierarchical,0,200,93.27,,5.97,64,cifar10_vit_tiny_hierarchical_seed0
+cifar10,dwsep_conv_stem,dwsep_conv_stem,0,200,89.20,,5.41,64,cifar10_vit_tiny_dwsep_conv_stem_seed0
+cifar100,linear,linear,0,200,74.10,,5.38,64,cifar100_vit_tiny_linear_seed0
+cifar100,conv_stem,conv_stem,0,200,72.87,,5.58,64,cifar100_vit_tiny_conv_stem_seed0
+cifar100,overlapping,overlapping,0,200,73.89,,5.41,64,cifar100_vit_tiny_overlapping_seed0
+cifar100,hierarchical,hierarchical,0,200,75.84,,5.99,64,cifar100_vit_tiny_hierarchical_seed0
+cifar100,dwsep_conv_stem,dwsep_conv_stem,0,200,67.71,,5.43,64,cifar100_vit_tiny_dwsep_conv_stem_seed0

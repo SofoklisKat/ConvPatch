@@ -33,8 +33,7 @@ Prior work shows that replacing the patchify stem with a small convolutional ste
 
 We present \textbf{ConvPatch}, a controlled isolation study that varies \emph{only} the patch-embedding module while holding the Transformer encoder, token count~$N$, embedding dimension~$D$, and training recipe fixed.
 We implement five matched-budget stems---linear (baseline), stacked conv, overlapping, hierarchical, and depthwise-separable---and evaluate them on CIFAR-10/100 and ImageNet-100 with ViT-Tiny and ViT-Small under identical augmentation and optimization.
-Our experiments test accuracy, convergence stability, data efficiency, robustness to corruptions, and compute overhead, with load-bearing controls for parameter-matched linear baselines and positional-encoding redundancy.
-\todo{Insert headline numbers after Phase 1 runs.}
+At matched token count and training recipe, we find that patch-embedding \emph{structure} matters in a dataset-dependent way: on CIFAR-100 ViT-Tiny (seed~0), a hierarchical conv stem reaches 75.84\% top-1 vs.\ 74.10\% for linear patchify (+1.74~pp), while on near-saturated CIFAR-10 linear remains best (93.71\% vs.\ 93.27--93.69\% for conv variants). Depthwise-separable stems underperform on both datasets.
 \end{abstract}
 
 %==============================================================================
@@ -199,17 +198,17 @@ We organize experiments into six phases (full plan in \texttt{paper/EXPERIMENT\_
 
 \begin{table}[t]
 \centering
-\caption{Main results (ViT-Tiny). \TBD{} after training.}
+\caption{Main results (ViT-Tiny, seed 0, 200 epochs). ImageNet-100 pending.}
 \label{tab:main}
-\begin{tabular}{lccc}
+\begin{tabular}{lccr}
 \toprule
-Patch embed & CIFAR-10 & CIFAR-100 & IN-100 \\
+Patch embed & CIFAR-10 & CIFAR-100 & Params (M) \\
 \midrule
-A: Linear      & \TBD & \TBD & \TBD \\
-B: Conv stem   & \TBD & \TBD & \TBD \\
-C: Overlapping & \TBD & \TBD & \TBD \\
-D: Hierarchical& \TBD & \TBD & \TBD \\
-E: DW-sep      & \TBD & \TBD & \TBD \\
+A: Linear      & 93.71 & 74.10 & 5.38 \\
+B: Conv stem   & 93.40 & 72.87 & 5.58 \\
+C: Overlapping & 93.69 & 73.89 & 5.41 \\
+D: Hierarchical& 93.27 & \textbf{75.84} & 5.99 \\
+E: DW-sep      & 89.20 & 67.71 & 5.43 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -252,27 +251,29 @@ Evaluate best checkpoints on CIFAR-C; report mCE, throughput, and memory.
 \section{Results}
 \label{sec:results}
 
-\todo{Populate after Phase 1--5 experiments.}
+We report Phase~1 results: five patch-embedding variants, ViT-Tiny, 200 epochs, seed~0, identical recipe (Table~\ref{tab:main}). Full notes in \texttt{paper/RESULTS.md}.
 
 \subsection{Main accuracy}
 
-\TBD
+On \textbf{CIFAR-100}, hierarchical patch embedding (D) achieves the best top-1 accuracy (75.84\%), outperforming the linear baseline (74.10\%) by 1.74 percentage points. Overlapping (73.89\%) and conv stem (72.87\%) are close to or below linear; depthwise-separable stem (67.71\%) is substantially worse.
+
+On \textbf{CIFAR-10}, all variants reach $\sim$93\% top-1; linear (93.71\%) is marginally best. Differences among linear, overlapping, conv stem, and hierarchical are within $\sim$0.5~pp, suggesting limited benefit from conv stems when the task is near saturation.
 
 \subsection{Convergence and optimization}
 
-\TBD
+Pending (Phase~3): LR/warmup sweeps and epoch curves from \texttt{runs/*/log.csv}.
 
 \subsection{Data efficiency}
 
-\TBD
+Pending (Phase~2): 10\% and 25\% CIFAR-100 subsets.
 
 \subsection{Ablations}
 
-\TBD
+Pending (Phase~4): position-embedding removal (A4), param-matched linear (A6).
 
 \subsection{Robustness and cost}
 
-\TBD
+Pending (Phase~5): CIFAR-C mCE, throughput, memory.
 
 %==============================================================================
 \section{Discussion}
@@ -294,8 +295,8 @@ ImageNet-1k scaling; MAE/DINO with conv stems; dense prediction transfer; hybrid
 \label{sec:conclusion}
 
 We introduced ConvPatch, a controlled framework for studying patch-embedding design in Vision Transformers.
-By isolating the stem as the sole independent variable and enforcing token-count invariance, we provide reproducible evidence on \emph{when} and \emph{why} convolutional patch embedding outperforms linear patchify---beyond capacity confounds.
-\todo{One-sentence summary of key finding.}
+By isolating the stem as the sole independent variable and enforcing token-count invariance, we show that conv stems are not universally better than linear patchify: on CIFAR-100, a hierarchical stem improves accuracy over linear at seed~0, while on CIFAR-10 linear remains competitive and depthwise-separable stems underperform.
+Future work should confirm these trends with multiple seeds, low-data regimes, and larger-scale benchmarks.
 
 %==============================================================================
 \bibliographystyle{plain}
